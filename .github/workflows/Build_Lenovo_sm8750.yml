@@ -270,21 +270,37 @@ jobs:
           cd ./common
           patch -p1 < 50_add_susfs_in_gki-android15-6.6.patch || true
           cd ..
-          test -f common/include/linux/susfs_def.h || {
-            echo "susfs_def.h not found"; exit 1;
-          }
+          echo "[INFO] 当前工作目录：$(pwd)"
+          echo "[INFO] 检查 susfs_def.h 是否存在..."
+          if test -f common/include/linux/susfs_def.h; then
+            echo "[OK] 已找到 common/include/linux/susfs_def.h"
+          else
+            echo "[ERR] 未找到 susfs_def.h，终止执行"
+            exit 1
+          fi
           BASE_C=common/fs/proc/base.c
-          grep -q 'susfs_def.h' "$BASE_C" || \
-          sed -i '/#include <linux\/cpufreq_times.h>/a \
+          echo "[INFO] 目标文件：$BASE_C"
+          echo "[INFO] 检查是否已包含 susfs_def.h ..."
+          if grep -q 'susfs_def.h' "$BASE_C"; then
+            echo "[SKIP] $BASE_C 中已包含 susfs_def.h，无需重复添加"
+          else
+            echo "[info] 正在向 $BASE_C 插入 susfs_def.h 引用..."
+            sed -i '/#include <linux\/cpufreq_times.h>/a \
           \
           #ifdef CONFIG_KSU_SUSFS_SUS_MAP\
           #include <linux/susfs_def.h>\
           #endif\
           ' "$BASE_C"
+            echo "[OK] 已插入 susfs_def.h 引用"
+          fi
+          echo "[INFO] 清理可能存在的补丁残留文件 base.c.rej ..."
           rm -f common/fs/proc/base.c.rej
-          grep -n 'susfs_def.h' "$BASE_C"
+          echo "[OK] 清理完成（如存在）"
+          echo "[INFO] 最终校验 susfs_def.h 插入结果："
+          grep -n 'susfs_def.h' "$BASE_C" && echo "[成功] 校验通过"
           case "${{ env.KERNEL_VERSION }}" in
             6.6.56)
+              echo "[INFO] 当前构建内核版本为6.6.56，正在修复 undeclared identifier 'vma' 编译错误"
               cd ./fs/proc
               sed -i 's/vma = find_vma(mm, start_vaddr);/struct vm_area_struct *vma = find_vma(mm, start_vaddr);/' task_mmu.c
               ;;
