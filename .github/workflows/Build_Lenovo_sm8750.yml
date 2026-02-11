@@ -262,25 +262,19 @@ jobs:
         run: |
           cd kernel_workspace
           echo "[INFO] 开始添加 SUSFS 补丁..."
-          echo "[INFO] 克隆 susfs4ksu 仓库..."
-          git clone --depth=1 https://gitlab.com/simonpunk/susfs4ksu.git
-          cd susfs4ksu
-          echo "[INFO] 切换到指定提交"
-          git fetch --depth=1 origin f77334c982f9970958b856665c4d26ddf75e8248
-          git checkout FETCH_HEAD
+          git clone https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android15-6.6
+          cd KernelSU 
+          git revert e16cf610855b73fd248d9e3609cd993ec667de02
           cd ..
-          echo "[OK] susfs4ksu 准备完成"
-          echo "[INFO] 克隆 SukiSU_patch 仓库..."
+          cd common
+          wget https://gitlab.com/simonpunk/susfs4ksu/-/raw/f77334c982f9970958b856665c4d26ddf75e8248/kernel_patches/50_add_susfs_in_gki-android15-6.6.patch
+          cd ..
           git clone https://github.com/ShirkNeko/SukiSU_patch.git
-          echo "[OK] SukiSU_patch 克隆完成"
-          echo "[INFO] 拷贝 SUSFS 补丁文件..."
           cp ./susfs4ksu/kernel_patches/50_add_susfs_in_gki-android15-6.6.patch ./common/
           cp ./susfs4ksu/kernel_patches/fs/* ./common/fs/
           cp ./susfs4ksu/kernel_patches/include/linux/* ./common/include/linux/
-          echo "[OK] 补丁文件拷贝完成"
-          echo "[INFO] 尝试应用 patch（失败不终止）..."
           cd ./common
-          patch -p1 < 50_add_susfs_in_gki-android15-6.6.patch || echo "[WARN] patch 应用失败，后续使用 sed 兜底"
+          patch -p1 < 50_add_susfs_in_gki-android15-6.6.patch || true
           cd ..
           echo "[INFO] 检查 susfs_def.h 是否存在..."
           if test -f common/include/linux/susfs_def.h; then
