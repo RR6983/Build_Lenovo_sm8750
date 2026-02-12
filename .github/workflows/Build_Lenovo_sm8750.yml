@@ -109,7 +109,7 @@ jobs:
               6.6.89)
                 echo 'KERNEL_TIME=Mon Jun 23 07:30:57 UTC 2025' >> $GITHUB_ENV
                 ;;
-              6.6.89)
+              6.6.102)
                 echo 'KERNEL_TIME=Tue Dec 9 15:43:22 UTC 2025' >> $GITHUB_ENV
                 ;;
             esac
@@ -205,7 +205,7 @@ jobs:
             ccache -sv
           fi
       - name: 🛠 Set Baseband-guard (配置BBG基带守护)
-        if: ${{inputs.enable_feature_a}}
+        if: ${{ env.ENABLE_BBG == 'true' }}
         run: |
           echo "正在启用启用内核级基带保护支持…"
           cd kernel_workspace
@@ -215,16 +215,11 @@ jobs:
 
       
       - name: ⚙️ Set ${{ env.KSU_TYPE }} (设置${{ env.KSU_TYPE }})
-        id: ksu_version
         run: |
             cd kernel_workspace
             echo "正在配置${{ env.KSU_TYPE }}..."
             if [ "${{ env.KSU_TYPE }}" == 'ReSukiSU' ]; then
               curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/refs/heads/main/kernel/setup.sh" | bash -s main
-              cd ./KernelSU
-              KSU_VERSION=$(expr $(git rev-list --count main) + 30700 2>/dev/null || echo 114514)
-              echo "KSUVER=$KSU_VERSION" >> $GITHUB_ENV
-              echo "ksuver=$KSU_VERSION" >> $GITHUB_OUTPUT
             else
               curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/refs/heads/main/kernel/setup.sh" | bash -s builtin
               cd ./KernelSU
@@ -261,15 +256,27 @@ jobs:
       - name: 🔧 Set up SUSFS (配置 SUSFS)
         run: |
           cd kernel_workspace
-          echo "[INFO] 开始添加 SUSFS 补丁..."
-          git clone https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android15-6.6
-          cd KernelSU 
-          git revert e16cf610855b73fd248d9e3609cd993ec667de02
-          cd ..
-          cd common
-          wget https://gitlab.com/simonpunk/susfs4ksu/-/raw/f77334c982f9970958b856665c4d26ddf75e8248/kernel_patches/50_add_susfs_in_gki-android15-6.6.patch
-          cd ..
-          git clone https://github.com/ShirkNeko/SukiSU_patch.git
+          if [ "${{ env.KSU_TYPE }}" == 'ReSukiSU' ]; then
+            git clone https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android15-6.6
+            cd KernelSU 
+            git config --global user.email "qiudaoyu2888@gmail.com"
+            git config --global user.name "Q1udaoyu"
+            git revert e16cf610855b73fd248d9e3609cd993ec667de02
+            KSU_VERSION=$(expr $(git rev-list --count main) + 30700 2>/dev/null || echo 114514)
+            echo "KSUVER=$KSU_VERSION" >> $GITHUB_ENV
+            echo "ksuver=$KSU_VERSION" >> $GITHUB_OUTPUT
+            cd ..
+            cd common
+            wget https://gitlab.com/simonpunk/susfs4ksu/-/raw/f77334c982f9970958b856665c4d26ddf75e8248/kernel_patches/50_add_susfs_in_gki-android15-6.6.patch
+            cd ..
+          else
+            git clone https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android15-6.6
+            cp ./susfs4ksu/kernel_patches/50_add_susfs_in_gki-android15-6.6.patch ./common/
+            wget https://github.com/cctv18/oppo_oplus_realme_sm8750/raw/refs/heads/main/other_patch/69_hide_stuff.patch -O ./common/69_hide_stuff.patch
+            cd ./common
+            patch -p1 < 69_hide_stuff.patch || true
+            cd ..
+          fi
           cp ./susfs4ksu/kernel_patches/50_add_susfs_in_gki-android15-6.6.patch ./common/
           cp ./susfs4ksu/kernel_patches/fs/* ./common/fs/
           cp ./susfs4ksu/kernel_patches/include/linux/* ./common/include/linux/
@@ -345,7 +352,7 @@ jobs:
           echo "CONFIG_KSU_MULTI_MANAGER_SUPPORT=y" >> ./common/arch/arm64/configs/gki_defconfig
           printf '%s\n' 'KSU_FULL_NAME_FORMAT="%TAG_NAME%-%COMMIT_SHA%-Re-TG@qdykernel"' >>  ./common/arch/arm64/configs/gki_defconfig
           
-          if [ "${{ env.ENABLE_KPM }} " = "true" ]; then
+          if [ "${{ env.ENABLE_KPM }} " == 'true' ]; then
             echo "CONFIG_KPM=y" >> ./common/arch/arm64/configs/gki_defconfig
           else
             echo "CONFIG_KPM=n" >> ./common/arch/arm64/configs/gki_defconfig
@@ -437,27 +444,26 @@ jobs:
           echo "FAKETIME=$FAKETIME" >> $GITHUB_ENV
           SO_DIR=$(pwd)
           export PRELOAD_LIBS="$SO_DIR/libfakestat.so $SO_DIR/libfaketimeMT.so"
-          #创建 CC (编译器) 包装器
+          
           echo '#!/bin/bash' > cc-wrapper
           echo 'export LD_PRELOAD="'$PRELOAD_LIBS'"' >> cc-wrapper
           echo 'export FAKESTAT="'$FAKESTAT'"' >> cc-wrapper
           echo 'export FAKETIME="'$FAKETIME'"' >> cc-wrapper
           echo 'ccache clang "$@"' >> cc-wrapper
-          #创建 LD (链接器) 包装器
+          
           echo '#!/bin/bash' > ld-wrapper
           echo 'export LD_PRELOAD="'$PRELOAD_LIBS'"' >> ld-wrapper
           echo 'export FAKESTAT="'$FAKESTAT'"' >> ld-wrapper
           echo 'export FAKETIME="'$FAKETIME'"' >> ld-wrapper
           echo 'ld.lld "$@"' >> ld-wrapper
           
-          # 测试时间劫持测试是否正常工作
           echo "--- [Wrapper Test] 正在创建通用的时间劫持测试脚本 ---"
           echo '#!/bin/bash' > test-wrapper.sh
           echo 'export LD_PRELOAD="'$PRELOAD_LIBS'"' >> test-wrapper.sh
           echo 'export FAKESTAT="'$FAKESTAT'"' >> test-wrapper.sh
           echo 'export FAKETIME="'$FAKETIME'"' >> test-wrapper.sh
           echo 'echo ">>> Wrapper 内部环境检查完毕."' >> test-wrapper.sh
-          echo 'exec "$@"' >> test-wrapper.sh # 执行所有传入的参数
+          echo 'exec "$@"' >> test-wrapper.sh
           chmod +x test-wrapper.sh
           echo "--- [Wrapper Test] 正在测试 (date) 命令 ---"
           ./test-wrapper.sh date
@@ -468,18 +474,52 @@ jobs:
           echo "--- 编译前环境时间: $(LD_PRELOAD=$PRELOAD_LIBS date) ---"
           echo "--- 编译前环境文件时间戳: ---"
           LD_PRELOAD=$PRELOAD_LIBS stat ./Makefile
-
+          
           export KBUILD_BUILD_TIMESTAMP="${KERNEL_TIME}"
           
-          #在构建内核的同时清除不必要的.NET, Android NDK, Haskell, CodeQL运行库，清理空间且不阻塞后续步骤运行
           sudo rm -rf /usr/share/dotnet &
           sudo rm -rf /usr/local/lib/android &
           sudo rm -rf /opt/ghc &
           sudo rm -rf /opt/hostedtoolcache/CodeQL &
+          
           make -j$(nproc --all) LLVM=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC="ccache clang" LD="ld.lld" HOSTLD=ld.lld O=out KCFLAGS+=-O2 KCFLAGS+=-Wno-error gki_defconfig &&
+          
+          ### ===== 调试插入开始（第一阶段后） =====
+          echo "========== 第一阶段完成 =========="
+          echo "SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH"
+          echo "KBUILD_BUILD_TIMESTAMP=$KBUILD_BUILD_TIMESTAMP"
+          if [ -f out/init/version-timestamp.c ]; then
+            echo ">>> 找到 version-timestamp.c"
+            echo "----- 文件内容开始 -----"
+            cat out/init/version-timestamp.c
+            echo "----- 文件内容结束 -----"
+            echo ">>> 文件 stat 信息："
+            stat out/init/version-timestamp.c
+          else
+            echo ">>> 未找到 version-timestamp.c"
+            find out -name version-timestamp.c
+          fi
+          echo "==================================="
+          ### ===== 调试插入结束 =====
+          
           make -j$(nproc --all) LLVM=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC="$(pwd)/cc-wrapper" LD="$(pwd)/ld-wrapper" HOSTLD=ld.lld O=out KCFLAGS+=-O2 KCFLAGS+=-Wno-error Image
           
-          # 编译后时间劫持二次校验
+          ### ===== 调试插入开始（第二阶段后） =====
+          echo "========== 第二阶段完成 =========="
+          if [ -f out/init/version-timestamp.c ]; then
+            echo ">>> 当前 version-timestamp.c 内容"
+            echo "----- 文件内容开始 -----"
+            cat out/init/version-timestamp.c
+            echo "----- 文件内容结束 -----"
+            echo ">>> 文件 stat 信息："
+            stat out/init/version-timestamp.c
+          else
+            echo ">>> 未找到 version-timestamp.c"
+            find out -name version-timestamp.c
+          fi
+          echo "==================================="
+          ### ===== 调试插入结束 =====
+          
           echo "--- 编译后环境时间: $(LD_PRELOAD=$PRELOAD_LIBS date) ---"
           echo "--- 编译后环境文件时间戳: ---"
           LD_PRELOAD=$PRELOAD_LIBS stat ./Makefile
@@ -489,8 +529,9 @@ jobs:
           echo "编译后空间:"
           df -h
 
+
       - name: 📦 Apply KPM and patch the kernel (应用KPM并修补内核)
-        if: ${{inputs.enable_feature_b}}
+        if: ${{ env.ENABLE_KPM == 'true' }}
         run: |
           echo "正在应用KPM并修补内核..."
           cd kernel_workspace/common/out/arch/arm64/boot
@@ -512,7 +553,7 @@ jobs:
          path: kernel_workspace/common/out/arch/arm64/boot/kernel
          
       - name: 📦 Sign boot using AOSP test key (使用AOSP测试密钥签名boot)
-        if: ${{inputs.enable_feature_c}}
+        if: ${{ env.ENABLE_SIGNED == 'true' }}
         run: |
           cd kernel_workspace
           aria2c -s16 -x16 -k1M "https://github.com/showdo/AOSP-Testkey-BootSigner/archive/refs/heads/main.tar.gz" -o boot_avb_tool.tar.gz && \
@@ -529,7 +570,7 @@ jobs:
           python3 rebuild_avb.py --chained-mode
 
       - name: 📤 Upload Signed boot (上传已签名的 boot)
-        if: ${{inputs.enable_feature_c}}
+        if: ${{ env.ENABLE_SIGNED == 'true' }}
         uses: actions/upload-artifact@v4
         with:
          name: Boot_${{ env.KSUVER }}_${{ env.KERNEL_VERSION }}_${{ env.KSU_TYPE }}_AOSP_Signed
